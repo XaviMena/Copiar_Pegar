@@ -7,6 +7,7 @@ final class AppModel: ObservableObject {
     @Published var history: HistoryStore
     @Published var settingsStore: SettingsStore
     @Published var isShowingHistory = false
+    @Published var isPreviewingImage = false
     @Published var loginItemService = LoginItemService()
 
     var openHistoryWindow: (() -> Void)?

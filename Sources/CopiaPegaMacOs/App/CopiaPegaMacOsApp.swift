@@ -63,11 +63,29 @@ struct CopiaPegaMacOsApp: App {
                             queue: .main
                         ) { _ in
                             Task { @MainActor in
+                                guard !appModel.isPreviewingImage else { return }
                                 appModel.isShowingHistory = false
                                 window.orderOut(nil)
                             }
                         }
                         objc_setAssociatedObject(window, observerName, token, .OBJC_ASSOCIATION_RETAIN)
+                    }
+
+                    let appObserverName = "com.copiapega.appResignActive"
+                    if objc_getAssociatedObject(window, appObserverName) == nil {
+                        let token = NotificationCenter.default.addObserver(
+                            forName: NSApplication.didResignActiveNotification,
+                            object: NSApp,
+                            queue: .main
+                        ) { _ in
+                            Task { @MainActor in
+                                guard appModel.isShowingHistory else { return }
+                                guard !appModel.isPreviewingImage else { return }
+                                appModel.isShowingHistory = false
+                                window.orderOut(nil)
+                            }
+                        }
+                        objc_setAssociatedObject(window, appObserverName, token, .OBJC_ASSOCIATION_RETAIN)
                     }
                 })
                 .frame(width: 380, height: 500)

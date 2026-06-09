@@ -95,7 +95,14 @@ final class HistoryStore: ObservableObject {
 
     func togglePin(_ entry: ClipboardEntry) {
         if let index = entries.firstIndex(where: { $0.id == entry.id }) {
-            entries[index].isPinned.toggle()
+            let shouldPin = !entries[index].isPinned
+            entries[index].isPinned = shouldPin
+
+            if shouldPin {
+                let pinnedEntry = entries.remove(at: index)
+                entries.insert(pinnedEntry, at: 0)
+            }
+
             save()
         }
     }

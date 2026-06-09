@@ -7,6 +7,8 @@ struct HistoryWindowView: View {
     @State private var selection: ClipboardEntry.ID?
     @State private var searchText = ""
     @State private var showSearch = false
+    @State private var previewedImageEntry: ClipboardEntry?
+    @State private var openingImageEntryID: ClipboardEntry.ID?
 
     private var selectedEntry: ClipboardEntry? {
         appModel.history.entries.first { $0.id == selection }
@@ -108,28 +110,54 @@ struct HistoryWindowView: View {
                 .padding(.horizontal, 12)
 
             // ── Items List ──
-            if filteredEntries.isEmpty {
-                emptyState
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 1) {
-                        ForEach(filteredEntries) { entry in
-                            ClipboardItemRow(
-                                entry: entry,
-                                isSelected: selection == entry.id,
-                                onSelect: {
-                                    withAnimation(.easeInOut(duration: 0.1)) {
-                                        selection = entry.id
-                                    }
-                                },
-                                onPaste: {
-                                    appModel.restoreAndPaste(entry)
-                                }
-                            )
+            ScrollViewReader { proxy in
+                if filteredEntries.isEmpty {
+                    emptyState
+                        .onAppear {
+                            resetPresentation()
                         }
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 1) {
+                            ForEach(filteredEntries) { entry in
+                                ClipboardItemRow(
+                                    entry: entry,
+                                    isSelected: selection == entry.id,
+                                    isOpeningPreview: openingImageEntryID == entry.id,
+                                    onSelect: {
+                                        withAnimation(.easeInOut(duration: 0.1)) {
+                                            selection = entry.id
+                                        }
+                                    },
+                                    onPaste: {
+                                        appModel.restoreAndPaste(entry)
+                                    },
+                                    onPreviewImage: {
+                                        selection = entry.id
+                                        openingImageEntryID = entry.id
+                                        appModel.isPreviewingImage = true
+
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                                            previewedImageEntry = entry
+                                        }
+                                    }
+                                )
+                                .id(entry.id)
+                            }
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
+                    .onAppear {
+                        resetPresentation(scrollProxy: proxy)
+                    }
+                    .onChange(of: appModel.isShowingHistory) { _, isShowing in
+                        guard isShowing else { return }
+                        resetPresentation(scrollProxy: proxy)
+                    }
+                    .onChange(of: appModel.history.entries.map(\.id)) { _, _ in
+                        ensureVisibleSelection(scrollProxy: proxy)
+                    }
                 }
             }
 
@@ -156,6 +184,46 @@ struct HistoryWindowView: View {
             RoundedRectangle(cornerRadius: 12)
                 .strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5)
         )
+        .sheet(item: $previewedImageEntry) { entry in
+            ImagePreviewSheet(entry: entry)
+                .environmentObject(appModel)
+                .onAppear {
+                    openingImageEntryID = nil
+                }
+        }
+        .onChange(of: previewedImageEntry) { _, entry in
+            if entry == nil {
+                openingImageEntryID = nil
+                appModel.isPreviewingImage = false
+            }
+        }
+        .onDisappear {
+            appModel.isPreviewingImage = false
+        }
+    }
+
+    private func resetPresentation(scrollProxy: ScrollViewProxy? = nil) {
+        guard appModel.isShowingHistory else { return }
+        showSearch = false
+        searchText = ""
+        selection = appModel.history.entries.first?.id
+        scrollToSelection(scrollProxy)
+    }
+
+    private func ensureVisibleSelection(scrollProxy: ScrollViewProxy) {
+        let visibleIDs = Set(filteredEntries.map(\.id))
+        if let selection, visibleIDs.contains(selection) {
+            return
+        }
+        selection = filteredEntries.first?.id
+        scrollToSelection(scrollProxy)
+    }
+
+    private func scrollToSelection(_ scrollProxy: ScrollViewProxy?) {
+        guard let selection, let scrollProxy else { return }
+        DispatchQueue.main.async {
+            scrollProxy.scrollTo(selection, anchor: .top)
+        }
     }
 
     // MARK: - Empty State
@@ -232,8 +300,10 @@ private struct ClipboardItemRow: View {
     @EnvironmentObject private var appModel: AppModel
     let entry: ClipboardEntry
     let isSelected: Bool
+    let isOpeningPreview: Bool
     let onSelect: () -> Void
     let onPaste: () -> Void
+    let onPreviewImage: () -> Void
 
     @State private var isHovered = false
 
@@ -242,6 +312,15 @@ private struct ClipboardItemRow: View {
             // ── Thumbnail ──
             thumbnail
                 .frame(width: 40, height: 40)
+                .onTapGesture(count: 2) { onPaste() }
+                .onTapGesture(count: 1) {
+                    if entry.kind == .image {
+                        onPreviewImage()
+                    } else {
+                        onSelect()
+                    }
+                }
+                .help(entry.kind == .image ? "Click para ampliar. Doble click para pegar." : "")
 
             // ── Content ──
             VStack(alignment: .leading, spacing: 2) {
@@ -290,9 +369,23 @@ private struct ClipboardItemRow: View {
                 .scaledToFill()
                 .frame(width: 40, height: 40)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay {
+                    if isOpeningPreview {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(.black.opacity(0.32))
+                            ProgressView()
+                                .controlSize(.small)
+                                .scaleEffect(0.7)
+                        }
+                    }
+                }
                 .overlay(
                     RoundedRectangle(cornerRadius: 6)
-                        .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+                        .strokeBorder(
+                            isOpeningPreview ? Color.accentColor.opacity(0.7) : Color.primary.opacity(0.08),
+                            lineWidth: isOpeningPreview ? 1.5 : 0.5
+                        )
                 )
         } else {
             RoundedRectangle(cornerRadius: 6)
@@ -367,5 +460,108 @@ private struct ClipboardItemRow: View {
                 Color.clear
             }
         }
+    }
+}
+
+// MARK: - Image Preview
+
+private struct ImagePreviewSheet: View {
+    @EnvironmentObject private var appModel: AppModel
+    @Environment(\.dismiss) private var dismiss
+    let entry: ClipboardEntry
+
+    @State private var image: NSImage?
+    @State private var isLoading = true
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(entry.title)
+                        .font(.system(size: 13, weight: .semibold))
+                    Text(RelativeDateFormatter.string(from: entry.createdAt))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Button {
+                    appModel.restoreAndPaste(entry)
+                    appModel.isPreviewingImage = false
+                    dismiss()
+                } label: {
+                    Label("Pegar", systemImage: "doc.on.clipboard")
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button {
+                    appModel.isPreviewingImage = false
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .frame(width: 22, height: 22)
+                }
+                .buttonStyle(.plain)
+                .help("Cerrar")
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+
+            Divider()
+
+            ZStack {
+                Color.black.opacity(0.04)
+
+                if let image {
+                    Image(nsImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .padding(18)
+                } else if isLoading {
+                    VStack(spacing: 10) {
+                        ProgressView()
+                            .controlSize(.regular)
+                        Text("Abriendo imagen...")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    VStack(spacing: 8) {
+                        Image(systemName: "photo")
+                            .font(.system(size: 28))
+                            .foregroundStyle(.tertiary)
+                        Text("No se pudo cargar la imagen")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .frame(minWidth: 640, minHeight: 440)
+        }
+        .frame(width: 720, height: 540)
+        .task(id: entry.id) {
+            await loadImage()
+        }
+        .onDisappear {
+            appModel.isPreviewingImage = false
+        }
+    }
+
+    private func loadImage() async {
+        isLoading = true
+        image = nil
+
+        guard let url = appModel.history.imageURL(for: entry) else {
+            isLoading = false
+            return
+        }
+
+        let loadedImage = await Task.detached(priority: .userInitiated) {
+            NSImage(contentsOf: url)
+        }.value
+
+        image = loadedImage
+        isLoading = false
     }
 }
