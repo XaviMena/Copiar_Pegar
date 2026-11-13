@@ -3,7 +3,8 @@ import SwiftUI
 @main
 struct CopiaPegaMacOsApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @StateObject private var appModel = AppModel()
+    private static let sharedAppModel = AppModel()
+    private var appModel: AppModel { Self.sharedAppModel }
     @Environment(\.openWindow) private var openWindow
 
     var body: some Scene {

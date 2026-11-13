@@ -3,13 +3,28 @@ import Combine
 import Foundation
 
 @MainActor
+final class HistoryViewState: ObservableObject {
+    @Published var selection: ClipboardEntry.ID?
+    @Published var searchText = ""
+    @Published var showSearch = false
+    @Published var isSearchFocused = false
+    @Published var previewedImageEntry: ClipboardEntry?
+    @Published var openingImageEntryID: ClipboardEntry.ID?
+    @Published var hoveredEntryID: ClipboardEntry.ID?
+    @Published var previewImage: NSImage?
+    @Published var isPreviewLoading = true
+}
+
+@MainActor
 final class AppModel: ObservableObject {
     @Published var history: HistoryStore
     @Published var settingsStore: SettingsStore
     @Published var isShowingHistory = false
     @Published var isPreviewingImage = false
+    @Published var isAccessibilityTrusted = false
     @Published var loginItemService = LoginItemService()
     @Published var hotKey: HotKeyService
+    let historyViewState = HistoryViewState()
 
     var openHistoryWindow: (() -> Void)?
 
@@ -34,6 +49,7 @@ final class AppModel: ObservableObject {
         self.clipboard = clipboard
         self.hotKey = hotKey
         self.pasteAutomation = pasteAutomation
+        self.isAccessibilityTrusted = pasteAutomation.isAccessibilityTrusted
         self.monitor = ClipboardMonitor(clipboard: clipboard, history: history, settingsStore: settingsStore)
 
         hotKey.onPressed = { [weak self] in
@@ -61,6 +77,12 @@ final class AppModel: ObservableObject {
             .store(in: &cancellables)
 
         loginItemService.objectWillChange
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+
+        historyViewState.objectWillChange
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
             }
@@ -171,5 +193,10 @@ final class AppModel: ObservableObject {
     func closeHistory() {
         isShowingHistory = false
         historyWindow?.orderOut(nil)
+    }
+
+    func refreshSystemStatus() {
+        isAccessibilityTrusted = pasteAutomation.isAccessibilityTrusted
+        loginItemService.refresh()
     }
 }

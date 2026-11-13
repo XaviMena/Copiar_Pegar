@@ -120,7 +120,7 @@ if [[ -z "${DEVELOPER_DIR:-}" ]]; then
             export DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer"
             log "Usando toolchain de Xcode: ${DEVELOPER_DIR}"
         else
-            warn "xcode-select apunta a ${ACTIVE_DEV_DIR:-ninguno}. Si falla con SwiftUIMacros, instala Xcode o selecciona Xcode.app con xcode-select."
+            log "Usando toolchain activo: ${ACTIVE_DEV_DIR:-predeterminado}"
         fi
     fi
 fi

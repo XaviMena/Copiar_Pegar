@@ -3,7 +3,6 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject private var appModel: AppModel
-    @State private var isAccessibilityTrusted = false
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
@@ -40,7 +39,7 @@ struct SettingsView: View {
                 HStack {
                     Text("Accesibilidad (pegar automático)")
                     Spacer()
-                    if isAccessibilityTrusted {
+                    if appModel.isAccessibilityTrusted {
                         Text("Concedido")
                             .foregroundStyle(.green)
                     } else {
@@ -130,15 +129,10 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .padding()
         .onAppear {
-            refreshStatus()
+            appModel.refreshSystemStatus()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            refreshStatus()
+            appModel.refreshSystemStatus()
         }
-    }
-
-    private func refreshStatus() {
-        isAccessibilityTrusted = appModel.pasteAutomation.isAccessibilityTrusted
-        appModel.loginItemService.refresh()
     }
 }

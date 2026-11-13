@@ -1,22 +1,21 @@
+import AppKit
 import SwiftUI
 
 // MARK: - Main Window
 
 struct HistoryWindowView: View {
     @EnvironmentObject private var appModel: AppModel
-    @State private var selection: ClipboardEntry.ID?
-    @State private var searchText = ""
-    @State private var showSearch = false
-    @State private var previewedImageEntry: ClipboardEntry?
-    @State private var openingImageEntryID: ClipboardEntry.ID?
-    @FocusState private var isSearchFocused: Bool
+
+    private var viewState: HistoryViewState {
+        appModel.historyViewState
+    }
 
     private var selectedEntry: ClipboardEntry? {
-        filteredEntries.first { $0.id == selection }
+        filteredEntries.first { $0.id == viewState.selection }
     }
 
     private var filteredEntries: [ClipboardEntry] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let query = viewState.searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !query.isEmpty else { return appModel.history.entries }
 
         return appModel.history.entries.filter { entry in
@@ -25,6 +24,20 @@ struct HistoryWindowView: View {
             }
             return entry.title.lowercased().contains(query)
         }
+    }
+
+    private var searchTextBinding: Binding<String> {
+        Binding(
+            get: { viewState.searchText },
+            set: { viewState.searchText = $0 }
+        )
+    }
+
+    private var previewedImageBinding: Binding<ClipboardEntry?> {
+        Binding(
+            get: { viewState.previewedImageEntry },
+            set: { viewState.previewedImageEntry = $0 }
+        )
     }
 
     var body: some View {
@@ -40,11 +53,11 @@ struct HistoryWindowView: View {
 
                     // Search toggle
                     Button {
-                        toggleSearch()
+                        toggleSearch(scrollProxy: proxy)
                     } label: {
                         Image(systemName: "magnifyingglass")
                             .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(showSearch ? Color.accentColor : Color.secondary.opacity(0.5))
+                            .foregroundStyle(viewState.showSearch ? Color.accentColor : Color.secondary.opacity(0.5))
                             .frame(width: 24, height: 24)
                     }
                     .buttonStyle(.plain)
@@ -67,23 +80,41 @@ struct HistoryWindowView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 14)
-                .padding(.bottom, showSearch ? 8 : 12)
+                .padding(.bottom, viewState.showSearch ? 8 : 12)
 
                 // ── Collapsible Search ──
-                if showSearch {
+                if viewState.showSearch {
                     HStack(spacing: 6) {
                         Image(systemName: "magnifyingglass")
                             .font(.system(size: 11))
                             .foregroundStyle(.tertiary)
 
-                        TextField("Buscar...", text: $searchText)
-                            .textFieldStyle(.plain)
-                            .font(.system(size: 12))
-                            .focused($isSearchFocused)
+                        SearchTextField(
+                            text: searchTextBinding,
+                            placeholder: "Buscar...",
+                            onFocusChange: { focused in
+                                viewState.isSearchFocused = focused
+                            },
+                            onMoveUp: {
+                                moveSelection(by: -1, scrollProxy: proxy)
+                            },
+                            onMoveDown: {
+                                moveSelection(by: 1, scrollProxy: proxy)
+                            },
+                            onSubmit: {
+                                if let selectedEntry {
+                                    appModel.restoreAndPaste(selectedEntry)
+                                }
+                            },
+                            onCancel: {
+                                appModel.closeHistory()
+                            }
+                        )
+                        .frame(height: 16)
 
-                        if !searchText.isEmpty {
+                        if !viewState.searchText.isEmpty {
                             Button {
-                                searchText = ""
+                                viewState.searchText = ""
                             } label: {
                                 Image(systemName: "xmark.circle.fill")
                                     .font(.system(size: 11))
@@ -118,23 +149,35 @@ struct HistoryWindowView: View {
                             ForEach(filteredEntries) { entry in
                                 ClipboardItemRow(
                                     entry: entry,
-                                    isSelected: selection == entry.id,
-                                    isOpeningPreview: openingImageEntryID == entry.id,
+                                    isSelected: viewState.selection == entry.id,
+                                    isHovered: viewState.hoveredEntryID == entry.id,
+                                    isOpeningPreview: viewState.openingImageEntryID == entry.id,
+                                    onHoverChanged: { hovering in
+                                        withAnimation(.easeInOut(duration: 0.12)) {
+                                            if hovering {
+                                                viewState.hoveredEntryID = entry.id
+                                            } else if viewState.hoveredEntryID == entry.id {
+                                                viewState.hoveredEntryID = nil
+                                            }
+                                        }
+                                    },
                                     onSelect: {
+                                        viewState.isSearchFocused = false
+                                        NSApp.keyWindow?.makeFirstResponder(nil)
                                         withAnimation(.easeInOut(duration: 0.1)) {
-                                            selection = entry.id
+                                            viewState.selection = entry.id
                                         }
                                     },
                                     onPaste: {
                                         appModel.restoreAndPaste(entry)
                                     },
                                     onPreviewImage: {
-                                        selection = entry.id
-                                        openingImageEntryID = entry.id
+                                        viewState.selection = entry.id
+                                        viewState.openingImageEntryID = entry.id
                                         appModel.isPreviewingImage = true
 
                                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                                            previewedImageEntry = entry
+                                            viewState.previewedImageEntry = entry
                                         }
                                     }
                                 )
@@ -174,7 +217,7 @@ struct HistoryWindowView: View {
             .onChange(of: appModel.history.entries.map(\.id)) { _, _ in
                 ensureVisibleSelection(scrollProxy: proxy)
             }
-            .onChange(of: searchText) { _, _ in
+            .onChange(of: viewState.searchText) { _, _ in
                 ensureVisibleSelection(scrollProxy: proxy)
             }
         }
@@ -184,16 +227,16 @@ struct HistoryWindowView: View {
             RoundedRectangle(cornerRadius: 12)
                 .strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5)
         )
-        .sheet(item: $previewedImageEntry) { entry in
-            ImagePreviewSheet(entry: entry)
+        .sheet(item: previewedImageBinding) { entry in
+            ImagePreviewSheet(entry: entry, viewState: viewState)
                 .environmentObject(appModel)
                 .onAppear {
-                    openingImageEntryID = nil
+                    viewState.openingImageEntryID = nil
                 }
         }
-        .onChange(of: previewedImageEntry) { _, entry in
+        .onChange(of: viewState.previewedImageEntry) { _, entry in
             if entry == nil {
-                openingImageEntryID = nil
+                viewState.openingImageEntryID = nil
                 appModel.isPreviewingImage = false
             }
         }
@@ -202,35 +245,34 @@ struct HistoryWindowView: View {
         }
     }
 
-    private func toggleSearch() {
+    private func toggleSearch(scrollProxy: ScrollViewProxy) {
         withAnimation(.easeInOut(duration: 0.2)) {
-            showSearch.toggle()
-            if showSearch {
-                DispatchQueue.main.async {
-                    isSearchFocused = true
-                }
-            } else {
-                isSearchFocused = false
-                searchText = ""
+            viewState.showSearch.toggle()
+            if !viewState.showSearch {
+                viewState.isSearchFocused = false
+                viewState.searchText = ""
+                NSApp.keyWindow?.makeFirstResponder(nil)
+                ensureVisibleSelection(scrollProxy: scrollProxy)
             }
         }
     }
 
     private func resetPresentation(scrollProxy: ScrollViewProxy? = nil) {
         guard appModel.isShowingHistory else { return }
-        showSearch = false
-        isSearchFocused = false
-        searchText = ""
-        selection = appModel.history.entries.first?.id
+        viewState.showSearch = false
+        viewState.isSearchFocused = false
+        viewState.searchText = ""
+        viewState.hoveredEntryID = nil
+        viewState.selection = appModel.history.entries.first?.id
         scrollToSelection(scrollProxy)
     }
 
     private func ensureVisibleSelection(scrollProxy: ScrollViewProxy) {
         let visibleIDs = Set(filteredEntries.map(\.id))
-        if let selection, visibleIDs.contains(selection) {
+        if let selection = viewState.selection, visibleIDs.contains(selection) {
             return
         }
-        selection = filteredEntries.first?.id
+        viewState.selection = filteredEntries.first?.id
         scrollToSelection(scrollProxy)
     }
 
@@ -238,15 +280,15 @@ struct HistoryWindowView: View {
         let entries = filteredEntries
         guard !entries.isEmpty else { return }
 
-        guard let currentID = selection,
+        guard let currentID = viewState.selection,
               let currentIndex = entries.firstIndex(where: { $0.id == currentID }) else {
-            selection = entries.first?.id
+            viewState.selection = entries.first?.id
             scrollToSelection(scrollProxy)
             return
         }
 
         let nextIndex = max(0, min(entries.count - 1, currentIndex + delta))
-        selection = entries[nextIndex].id
+        viewState.selection = entries[nextIndex].id
         scrollToSelection(scrollProxy)
     }
 
@@ -267,13 +309,13 @@ struct HistoryWindowView: View {
 
         withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
             appModel.delete(entry)
-            selection = nextSelection
+            viewState.selection = nextSelection
         }
         scrollToSelection(scrollProxy)
     }
 
     private func scrollToSelection(_ scrollProxy: ScrollViewProxy?) {
-        guard let selection, let scrollProxy else { return }
+        guard let selection = viewState.selection, let scrollProxy else { return }
         DispatchQueue.main.async {
             scrollProxy.scrollTo(selection, anchor: .center)
         }
@@ -283,10 +325,10 @@ struct HistoryWindowView: View {
 
     private var emptyState: some View {
         VStack(spacing: 8) {
-            Image(systemName: searchText.isEmpty ? "clipboard" : "magnifyingglass")
+            Image(systemName: viewState.searchText.isEmpty ? "clipboard" : "magnifyingglass")
                 .font(.system(size: 24, weight: .thin))
                 .foregroundStyle(.quaternary)
-            Text(searchText.isEmpty ? "Historial vacío" : "Sin resultados")
+            Text(viewState.searchText.isEmpty ? "Historial vacío" : "Sin resultados")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.tertiary)
         }
@@ -329,8 +371,9 @@ struct HistoryWindowView: View {
                 .keyboardShortcut(.defaultAction)
                 .opacity(0).frame(width: 0, height: 0)
 
-            if !isSearchFocused {
+            if !viewState.isSearchFocused {
                 Button("") {
+                    guard !(NSApp.keyWindow?.firstResponder is NSTextView) else { return }
                     deleteSelectedEntry(selectedEntry, scrollProxy: scrollProxy)
                 }
                 .keyboardShortcut(.delete, modifiers: [])
@@ -344,10 +387,111 @@ struct HistoryWindowView: View {
 
         // Cmd+F to toggle search
         Button("") {
-            toggleSearch()
+            toggleSearch(scrollProxy: scrollProxy)
         }
         .keyboardShortcut("f", modifiers: .command)
         .opacity(0).frame(width: 0, height: 0)
+    }
+}
+
+// MARK: - Search Text Field
+
+private struct SearchTextField: NSViewRepresentable {
+    @Binding var text: String
+    let placeholder: String
+    let onFocusChange: (Bool) -> Void
+    let onMoveUp: () -> Void
+    let onMoveDown: () -> Void
+    let onSubmit: () -> Void
+    let onCancel: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeNSView(context: Context) -> FocusableSearchField {
+        let field = FocusableSearchField()
+        field.isBordered = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        field.font = NSFont.systemFont(ofSize: 12)
+        field.placeholderString = placeholder
+        field.delegate = context.coordinator
+        field.stringValue = text
+        field.onFocusChange = onFocusChange
+
+        DispatchQueue.main.async {
+            field.window?.makeFirstResponder(field)
+        }
+        return field
+    }
+
+    func updateNSView(_ nsView: FocusableSearchField, context: Context) {
+        context.coordinator.parent = self
+        nsView.onFocusChange = onFocusChange
+        if nsView.stringValue != text {
+            nsView.stringValue = text
+        }
+    }
+
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        nonisolated(unsafe) var parent: SearchTextField
+
+        init(parent: SearchTextField) {
+            self.parent = parent
+        }
+
+        func controlTextDidBeginEditing(_ obj: Notification) {
+            MainActor.assumeIsolated {
+                parent.onFocusChange(true)
+            }
+        }
+
+        func controlTextDidEndEditing(_ obj: Notification) {
+            MainActor.assumeIsolated {
+                parent.onFocusChange(false)
+            }
+        }
+
+        func controlTextDidChange(_ obj: Notification) {
+            MainActor.assumeIsolated {
+                guard let field = obj.object as? NSTextField else { return }
+                parent.text = field.stringValue
+            }
+        }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            MainActor.assumeIsolated {
+                switch commandSelector {
+                case #selector(NSResponder.moveUp(_:)):
+                    parent.onMoveUp()
+                    return true
+                case #selector(NSResponder.moveDown(_:)):
+                    parent.onMoveDown()
+                    return true
+                case #selector(NSResponder.insertNewline(_:)):
+                    parent.onSubmit()
+                    return true
+                case #selector(NSResponder.cancelOperation(_:)):
+                    parent.onCancel()
+                    return true
+                default:
+                    return false
+                }
+            }
+        }
+    }
+}
+
+private final class FocusableSearchField: NSTextField {
+    var onFocusChange: ((Bool) -> Void)?
+
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted {
+            onFocusChange?(true)
+        }
+        return accepted
     }
 }
 
@@ -357,12 +501,12 @@ private struct ClipboardItemRow: View {
     @EnvironmentObject private var appModel: AppModel
     let entry: ClipboardEntry
     let isSelected: Bool
+    let isHovered: Bool
     let isOpeningPreview: Bool
+    let onHoverChanged: (Bool) -> Void
     let onSelect: () -> Void
     let onPaste: () -> Void
     let onPreviewImage: () -> Void
-
-    @State private var isHovered = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -409,11 +553,7 @@ private struct ClipboardItemRow: View {
         .contentShape(Rectangle())
         .onTapGesture(count: 2) { onPaste() }
         .onTapGesture(count: 1) { onSelect() }
-        .onHover { h in
-            withAnimation(.easeInOut(duration: 0.12)) {
-                isHovered = h
-            }
-        }
+        .onHover(perform: onHoverChanged)
     }
 
     // MARK: Thumbnail
@@ -526,9 +666,7 @@ private struct ImagePreviewSheet: View {
     @EnvironmentObject private var appModel: AppModel
     @Environment(\.dismiss) private var dismiss
     let entry: ClipboardEntry
-
-    @State private var image: NSImage?
-    @State private var isLoading = true
+    @ObservedObject var viewState: HistoryViewState
 
     var body: some View {
         VStack(spacing: 0) {
@@ -572,12 +710,12 @@ private struct ImagePreviewSheet: View {
             ZStack {
                 Color.black.opacity(0.04)
 
-                if let image {
+                if let image = viewState.previewImage {
                     Image(nsImage: image)
                         .resizable()
                         .scaledToFit()
                         .padding(18)
-                } else if isLoading {
+                } else if viewState.isPreviewLoading {
                     VStack(spacing: 10) {
                         ProgressView()
                             .controlSize(.regular)
@@ -608,11 +746,11 @@ private struct ImagePreviewSheet: View {
     }
 
     private func loadImage() async {
-        isLoading = true
-        image = nil
+        viewState.isPreviewLoading = true
+        viewState.previewImage = nil
 
         guard let url = appModel.history.imageURL(for: entry) else {
-            isLoading = false
+            viewState.isPreviewLoading = false
             return
         }
 
@@ -621,7 +759,7 @@ private struct ImagePreviewSheet: View {
         }.value
 
         guard !Task.isCancelled else { return }
-        image = data.flatMap { NSImage(data: $0) }
-        isLoading = false
+        viewState.previewImage = data.flatMap { NSImage(data: $0) }
+        viewState.isPreviewLoading = false
     }
 }
