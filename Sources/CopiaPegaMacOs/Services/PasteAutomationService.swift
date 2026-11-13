@@ -107,9 +107,9 @@ final class PasteAutomationService {
             return true
         }
 
-        let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+        // Use literal key because kAXTrustedCheckOptionPrompt is imported as mutable var in Swift 6.
         let options = [
-            promptKey: true
+            "AXTrustedCheckOptionPrompt": true
         ] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
         return false
