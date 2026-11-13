@@ -113,6 +113,18 @@ sign_app() {
 }
 
 # ── 1. Build release ──
+if [[ -z "${DEVELOPER_DIR:-}" ]]; then
+    ACTIVE_DEV_DIR="$(xcode-select -p 2>/dev/null || true)"
+    if [[ "$ACTIVE_DEV_DIR" != *.app/Contents/Developer ]]; then
+        if [[ -d "/Applications/Xcode.app/Contents/Developer" ]]; then
+            export DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer"
+            log "Usando toolchain de Xcode: ${DEVELOPER_DIR}"
+        else
+            warn "xcode-select apunta a ${ACTIVE_DEV_DIR:-ninguno}. Si falla con SwiftUIMacros, instala Xcode o selecciona Xcode.app con xcode-select."
+        fi
+    fi
+fi
+
 log "Compilando en modo release..."
 swift build -c release
 ok "Build completado"
