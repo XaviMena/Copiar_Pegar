@@ -81,6 +81,7 @@ struct HistoryWindowView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 14)
                 .padding(.bottom, viewState.showSearch ? 8 : 12)
+                .background(WindowDragArea())
 
                 // ── Collapsible Search ──
                 if viewState.showSearch {
@@ -761,5 +762,23 @@ private struct ImagePreviewSheet: View {
         guard !Task.isCancelled else { return }
         viewState.previewImage = data.flatMap { NSImage(data: $0) }
         viewState.isPreviewLoading = false
+    }
+}
+
+// MARK: - Window Drag Area
+
+private struct WindowDragArea: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        DraggableNSView()
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    private final class DraggableNSView: NSView {
+        override var mouseDownCanMoveWindow: Bool { true }
+
+        override func mouseDown(with event: NSEvent) {
+            window?.performDrag(with: event)
+        }
     }
 }

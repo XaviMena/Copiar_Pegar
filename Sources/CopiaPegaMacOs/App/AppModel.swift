@@ -127,7 +127,12 @@ final class AppModel: ObservableObject {
             .environmentObject(self)
             .frame(width: 380, height: 500)
         window.contentView = NSHostingView(rootView: rootView)
-        window.center()
+        let autosaveName = NSWindow.FrameAutosaveName("CopiaPegaHistoryWindowFrame")
+        if !window.setFrameUsingName(autosaveName) {
+            window.center()
+        }
+        window.setContentSize(NSSize(width: 380, height: 500))
+        window.setFrameAutosaveName(autosaveName)
 
         let resignKeyToken = NotificationCenter.default.addObserver(
             forName: NSWindow.didResignKeyNotification,
