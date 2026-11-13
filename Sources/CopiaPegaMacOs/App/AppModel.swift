@@ -5,8 +5,24 @@ import SwiftUI
 
 @MainActor
 private final class KeyableWindow: NSWindow {
+    var handleKeyEvent: ((NSEvent) -> Bool)?
+
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if handleKeyEvent?(event) == true {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if handleKeyEvent?(event) == true {
+            return
+        }
+        super.keyDown(with: event)
+    }
 }
 
 @MainActor

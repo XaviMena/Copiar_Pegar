@@ -10,20 +10,8 @@ struct HistoryWindowView: View {
         appModel.historyViewState
     }
 
-    private var selectedEntry: ClipboardEntry? {
-        filteredEntries.first { $0.id == viewState.selection }
-    }
-
     private var filteredEntries: [ClipboardEntry] {
-        let query = viewState.searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !query.isEmpty else { return appModel.history.entries }
-
-        return appModel.history.entries.filter { entry in
-            if entry.kind == .text, let text = entry.text {
-                return text.lowercased().contains(query)
-            }
-            return entry.title.lowercased().contains(query)
-        }
+        appModel.filteredHistoryEntries
     }
 
     private var searchTextBinding: Binding<String> {
@@ -53,7 +41,10 @@ struct HistoryWindowView: View {
 
                     // Search toggle
                     Button {
-                        toggleSearch(scrollProxy: proxy)
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            appModel.toggleHistorySearch()
+                        }
+                        scrollToSelection(proxy)
                     } label: {
                         Image(systemName: "magnifyingglass")
                             .font(.system(size: 11, weight: .medium))
@@ -97,15 +88,13 @@ struct HistoryWindowView: View {
                                 viewState.isSearchFocused = focused
                             },
                             onMoveUp: {
-                                moveSelection(by: -1, scrollProxy: proxy)
+                                appModel.moveHistorySelection(by: -1)
                             },
                             onMoveDown: {
-                                moveSelection(by: 1, scrollProxy: proxy)
+                                appModel.moveHistorySelection(by: 1)
                             },
                             onSubmit: {
-                                if let selectedEntry {
-                                    appModel.restoreAndPaste(selectedEntry)
-                                }
+                                appModel.pasteSelectedHistoryEntry()
                             },
                             onCancel: {
                                 appModel.closeHistory()
