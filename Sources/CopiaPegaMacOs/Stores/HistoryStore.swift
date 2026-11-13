@@ -116,6 +116,7 @@ final class HistoryStore: ObservableObject {
                 entries.insert(pinnedEntry, at: 0)
             }
 
+            entries = sortPinnedFirst(entries)
             save()
         }
     }
@@ -130,8 +131,9 @@ final class HistoryStore: ObservableObject {
     private func pruneInMemory(settings: AppSettings) -> Bool {
         let cutoff = Date().addingTimeInterval(TimeInterval(-max(1, settings.retentionHours) * 3_600))
 
-        let pinned = entries.filter { $0.isPinned }
+        let pinned = entries.filter(\.isPinned)
         let unpinned = entries.filter { !$0.isPinned }
+            .sorted { $0.createdAt > $1.createdAt }
 
         var keptUnpinned = unpinned.filter { $0.createdAt >= cutoff }
         let maxUnpinned = max(0, settings.maxItems - pinned.count)
@@ -139,8 +141,7 @@ final class HistoryStore: ObservableObject {
             keptUnpinned = Array(keptUnpinned.prefix(maxUnpinned))
         }
 
-        let allowedIDs = Set(pinned.map(\.id) + keptUnpinned.map(\.id))
-        let kept = entries.filter { allowedIDs.contains($0.id) }
+        let kept = pinned + keptUnpinned
         let changed = kept != entries
 
         if changed {
@@ -166,8 +167,16 @@ final class HistoryStore: ObservableObject {
         newEntry.isPinned = isPinned
 
         entries.insert(newEntry, at: 0)
+        entries = sortPinnedFirst(entries)
         _ = pruneInMemory(settings: settings)
         save()
+    }
+
+    private func sortPinnedFirst(_ items: [ClipboardEntry]) -> [ClipboardEntry] {
+        let pinned = items.filter(\.isPinned)
+        let unpinned = items.filter { !$0.isPinned }
+            .sorted { $0.createdAt > $1.createdAt }
+        return pinned + unpinned
     }
 
     private func ensureDirectories(fileManager: FileManager) {
@@ -180,7 +189,8 @@ final class HistoryStore: ObservableObject {
             entries = []
             return
         }
-        entries = (try? decoder.decode([ClipboardEntry].self, from: data)) ?? []
+        let decoded = (try? decoder.decode([ClipboardEntry].self, from: data)) ?? []
+        entries = sortPinnedFirst(decoded)
     }
 
     private func save() {
