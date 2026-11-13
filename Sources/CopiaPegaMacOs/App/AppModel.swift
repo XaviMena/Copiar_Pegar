@@ -9,14 +9,15 @@ final class AppModel: ObservableObject {
     @Published var isShowingHistory = false
     @Published var isPreviewingImage = false
     @Published var loginItemService = LoginItemService()
+    @Published var hotKey: HotKeyService
 
     var openHistoryWindow: (() -> Void)?
-    var closeHistoryWindow: (() -> Void)?
 
     private let clipboard: ClipboardService
     private let monitor: ClipboardMonitor
-    private let hotKey: HotKeyService
     let pasteAutomation: PasteAutomationService
+    private weak var historyWindow: NSWindow?
+    private var windowObservers: [NSObjectProtocol] = []
     private var cancellables = Set<AnyCancellable>()
 
     init() {
@@ -25,6 +26,8 @@ final class AppModel: ObservableObject {
         let clipboard = ClipboardService()
         let hotKey = HotKeyService()
         let pasteAutomation = PasteAutomationService()
+
+        history.prune(settings: settingsStore.settings)
 
         self.history = history
         self.settingsStore = settingsStore
@@ -51,6 +54,18 @@ final class AppModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        hotKey.objectWillChange
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+
+        loginItemService.objectWillChange
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+
         settingsStore.$settings
             .dropFirst()
             .sink { [weak self] settings in
@@ -62,16 +77,70 @@ final class AppModel: ObservableObject {
             .store(in: &cancellables)
     }
 
+    func attachHistoryWindow(_ window: NSWindow?) {
+        guard let window else { return }
+
+        if historyWindow !== window {
+            for token in windowObservers {
+                NotificationCenter.default.removeObserver(token)
+            }
+            windowObservers.removeAll()
+            historyWindow = window
+
+            // Keep .titled so canBecomeKey remains true for keyboard shortcuts and search input.
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
+            window.styleMask.insert(.fullSizeContentView)
+            window.isMovableByWindowBackground = true
+            window.isOpaque = false
+            window.backgroundColor = .clear
+            window.level = .floating
+            window.collectionBehavior.insert(.moveToActiveSpace)
+
+            window.standardWindowButton(.closeButton)?.isHidden = true
+            window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+            window.standardWindowButton(.zoomButton)?.isHidden = true
+
+            let resignKeyToken = NotificationCenter.default.addObserver(
+                forName: NSWindow.didResignKeyNotification,
+                object: window,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self, self.isShowingHistory, !self.isPreviewingImage else { return }
+                    self.closeHistory()
+                }
+            }
+
+            let resignActiveToken = NotificationCenter.default.addObserver(
+                forName: NSApplication.didResignActiveNotification,
+                object: NSApp,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self, self.isShowingHistory, !self.isPreviewingImage else { return }
+                    self.closeHistory()
+                }
+            }
+
+            windowObservers = [resignKeyToken, resignActiveToken]
+        }
+
+        if isShowingHistory {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        } else {
+            window.orderOut(nil)
+        }
+    }
+
     func restore(_ entry: ClipboardEntry) {
         clipboard.restore(entry, history: history)
     }
 
     func restoreAndPaste(_ entry: ClipboardEntry) {
-        // 1. Put the selected entry on the system clipboard
         restore(entry)
-        // 2. Close our window (this hides it via orderOut)
-        closeHistoryWindow?()
-        // 3. Activate the previously-frontmost app and send Cmd+V
+        closeHistory()
         pasteAutomation.pasteIntoLastTarget()
     }
 
@@ -88,10 +157,19 @@ final class AppModel: ObservableObject {
     }
 
     func showHistory() {
-        // Capture the currently frontmost app BEFORE we show our window
         pasteAutomation.captureCurrentTarget()
+        history.prune(settings: settingsStore.settings)
         isShowingHistory = true
         NSApp.activate(ignoringOtherApps: true)
-        openHistoryWindow?()
+        if let historyWindow {
+            historyWindow.makeKeyAndOrderFront(nil)
+        } else {
+            openHistoryWindow?()
+        }
+    }
+
+    func closeHistory() {
+        isShowingHistory = false
+        historyWindow?.orderOut(nil)
     }
 }

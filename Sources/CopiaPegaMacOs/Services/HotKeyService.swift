@@ -4,6 +4,7 @@ import Foundation
 
 @MainActor
 final class HotKeyService: ObservableObject {
+    @Published private(set) var registrationFailed = false
     var onPressed: (() -> Void)?
 
     private var hotKeyRefs: [EventHotKeyRef] = []
@@ -13,11 +14,11 @@ final class HotKeyService: ObservableObject {
         unregisterHotKeys()
         installHandlerIfNeeded()
 
-        registerHotKey(keyCode: settings.hotKeyKeyCode, modifiers: settings.hotKeyModifiers, id: 1)
-
-        if settings.hotKeyKeyCode != HotKeyDefaults.keyV || settings.hotKeyModifiers != HotKeyDefaults.controlOption {
-            registerHotKey(keyCode: HotKeyDefaults.keyV, modifiers: HotKeyDefaults.controlOption, id: 2)
-        }
+        registrationFailed = !registerHotKey(
+            keyCode: settings.hotKeyKeyCode,
+            modifiers: settings.hotKeyModifiers,
+            id: 1
+        )
     }
 
     func unregister() {
@@ -69,7 +70,8 @@ final class HotKeyService: ObservableObject {
         )
     }
 
-    private func registerHotKey(keyCode: UInt32, modifiers: UInt32, id: UInt32) {
+    @discardableResult
+    private func registerHotKey(keyCode: UInt32, modifiers: UInt32, id: UInt32) -> Bool {
         var hotKeyRef: EventHotKeyRef?
         let hotKeyID = EventHotKeyID(signature: OSType(UInt32.fromFourCharCode("CPGV")), id: id)
         let status = RegisterEventHotKey(
@@ -83,7 +85,9 @@ final class HotKeyService: ObservableObject {
 
         if status == noErr, let hotKeyRef {
             hotKeyRefs.append(hotKeyRef)
+            return true
         }
+        return false
     }
 
     private func unregisterHotKeys() {

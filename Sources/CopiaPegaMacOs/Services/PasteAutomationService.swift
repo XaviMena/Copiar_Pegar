@@ -7,6 +7,11 @@ final class PasteAutomationService {
     private var lastTargetBundleIdentifier: String?
     private var lastTargetPID: pid_t?
     private var observer: NSObjectProtocol?
+    private var pendingPasteTask: Task<Void, Never>?
+
+    var isAccessibilityTrusted: Bool {
+        AXIsProcessTrusted()
+    }
 
     init(workspace: NSWorkspace = .shared) {
         let ownBundleIdentifier = Bundle.main.bundleIdentifier
@@ -27,9 +32,11 @@ final class PasteAutomationService {
                 return
             }
 
+            let bundleIdentifier = app.bundleIdentifier
+            let processIdentifier = app.processIdentifier
             Task { @MainActor in
-                self?.lastTargetBundleIdentifier = app.bundleIdentifier
-                self?.lastTargetPID = app.processIdentifier
+                self?.lastTargetBundleIdentifier = bundleIdentifier
+                self?.lastTargetPID = processIdentifier
             }
         }
     }
@@ -50,29 +57,49 @@ final class PasteAutomationService {
             return
         }
 
-        activateLastTarget()
+        let targetPID = activateLastTarget()
+        pendingPasteTask?.cancel()
+        pendingPasteTask = Task { @MainActor in
+            if let targetPID {
+                for _ in 0..<20 {
+                    if NSWorkspace.shared.frontmostApplication?.processIdentifier == targetPID {
+                        break
+                    }
+                    try? await Task.sleep(for: .milliseconds(25))
+                    if Task.isCancelled { return }
+                }
+            } else {
+                try? await Task.sleep(for: .milliseconds(150))
+            }
 
-        // Give more time for the target app to fully activate before pasting
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            try? await Task.sleep(for: .milliseconds(40))
+            guard !Task.isCancelled else { return }
             Self.sendCommandV()
         }
     }
 
-    private func activateLastTarget() {
+    @discardableResult
+    func requestAccessibilityPermission() -> Bool {
+        ensureAccessibilityPermission()
+    }
+
+    @discardableResult
+    private func activateLastTarget() -> pid_t? {
         // Try by PID first (more reliable), then fall back to bundle identifier
         if let pid = lastTargetPID,
            let app = NSRunningApplication(processIdentifier: pid),
            app.isTerminated == false {
             app.activate()
-            return
+            return pid
         }
 
         guard let bundleId = lastTargetBundleIdentifier,
               let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first else {
-            return
+            return nil
         }
 
         app.activate()
+        return app.processIdentifier
     }
 
     private func ensureAccessibilityPermission() -> Bool {
@@ -80,8 +107,9 @@ final class PasteAutomationService {
             return true
         }
 
+        let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
         let options = [
-            "AXTrustedCheckOptionPrompt": true
+            promptKey: true
         ] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
         return false

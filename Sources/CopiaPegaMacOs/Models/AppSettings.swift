@@ -22,7 +22,7 @@ enum HotKeyDefaults {
     static let keyH: UInt32 = 4
     static let commandOption: UInt32 = 2_304
     static let controlOption: UInt32 = 6_144
-    static let controlCommand: UInt32 = 5_120
+    static let controlCommand: UInt32 = 4_352 // controlKey (4096) + cmdKey (256)
 }
 
 struct HotKeyChoice: Identifiable, Equatable {

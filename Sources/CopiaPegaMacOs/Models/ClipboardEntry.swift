@@ -48,7 +48,9 @@ struct ClipboardEntry: Identifiable, Codable, Equatable {
     var title: String {
         switch kind {
         case .text:
-            let value = text?.replacingOccurrences(of: "\n", with: " ") ?? ""
+            let value = (text ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: "\n", with: " ")
             return value.truncated(to: 30)
         case .image:
             if let imageWidth, let imageHeight {

@@ -58,12 +58,21 @@ create_local_signing_identity() {
         -keyout "${tmp_dir}/key.pem" \
         -out "${tmp_dir}/cert.pem" >/dev/null 2>&1
 
-    openssl pkcs12 -legacy -export \
-        -inkey "${tmp_dir}/key.pem" \
-        -in "${tmp_dir}/cert.pem" \
-        -name "${SIGN_IDENTITY_NAME}" \
-        -out "${tmp_dir}/identity.p12" \
-        -passout "pass:${P12_PASSWORD}" >/dev/null 2>&1
+    if openssl pkcs12 -help 2>&1 | grep -Fq -- "-legacy"; then
+        openssl pkcs12 -legacy -export \
+            -inkey "${tmp_dir}/key.pem" \
+            -in "${tmp_dir}/cert.pem" \
+            -name "${SIGN_IDENTITY_NAME}" \
+            -out "${tmp_dir}/identity.p12" \
+            -passout "pass:${P12_PASSWORD}" >/dev/null 2>&1
+    else
+        openssl pkcs12 -export \
+            -inkey "${tmp_dir}/key.pem" \
+            -in "${tmp_dir}/cert.pem" \
+            -name "${SIGN_IDENTITY_NAME}" \
+            -out "${tmp_dir}/identity.p12" \
+            -passout "pass:${P12_PASSWORD}" >/dev/null 2>&1
+    fi
 
     security import "${tmp_dir}/identity.p12" \
         -k "${KEYCHAIN}" \
@@ -105,7 +114,7 @@ sign_app() {
 
 # ── 1. Build release ──
 log "Compilando en modo release..."
-swift build -c release 2>&1 | tail -5
+swift build -c release
 ok "Build completado"
 
 # Verificar que el binario existe

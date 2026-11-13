@@ -2,8 +2,29 @@ import SwiftUI
 
 struct MenuBarContentView: View {
     @EnvironmentObject private var appModel: AppModel
-    @Environment(\.openWindow) private var openWindow
-    @Environment(\.openSettings) private var openSettings
+
+    private var openHistoryShortcut: (key: KeyEquivalent, modifiers: EventModifiers) {
+        let settings = appModel.settingsStore.settings
+        let key: KeyEquivalent = switch settings.hotKeyKeyCode {
+        case HotKeyDefaults.keyC:
+            KeyEquivalent("c")
+        case HotKeyDefaults.keyH:
+            KeyEquivalent("h")
+        default:
+            KeyEquivalent("v")
+        }
+
+        let modifiers: EventModifiers = switch settings.hotKeyModifiers {
+        case HotKeyDefaults.controlOption:
+            [.control, .option]
+        case HotKeyDefaults.controlCommand:
+            [.control, .command]
+        default:
+            [.command, .option]
+        }
+
+        return (key, modifiers)
+    }
 
     var body: some View {
         if appModel.history.entries.isEmpty {
@@ -25,7 +46,7 @@ struct MenuBarContentView: View {
         Button("Abrir historial") {
             appModel.showHistory()
         }
-        .keyboardShortcut("v", modifiers: [.command, .option])
+        .keyboardShortcut(openHistoryShortcut.key, modifiers: openHistoryShortcut.modifiers)
 
         SettingsLink {
             Text("Ajustes")

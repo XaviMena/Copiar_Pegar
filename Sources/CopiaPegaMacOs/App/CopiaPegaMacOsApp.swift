@@ -24,69 +24,7 @@ struct CopiaPegaMacOsApp: App {
             HistoryWindowView()
                 .environmentObject(appModel)
                 .background(WindowAccessor { window in
-                    guard let window else { return }
-
-                    // Store the close callback once
-                    appModel.closeHistoryWindow = {
-                        appModel.isShowingHistory = false
-                        window.orderOut(nil)
-                    }
-
-                    // Configure window appearance (idempotent)
-                    window.titleVisibility = .hidden
-                    window.titlebarAppearsTransparent = true
-                    window.styleMask.insert(.fullSizeContentView)
-                    window.styleMask.remove(.titled)
-                    window.isMovableByWindowBackground = true
-                    window.backgroundColor = .clear
-                    window.level = .floating
-
-                    // Hide traffic light buttons
-                    window.standardWindowButton(.closeButton)?.isHidden = true
-                    window.standardWindowButton(.miniaturizeButton)?.isHidden = true
-                    window.standardWindowButton(.zoomButton)?.isHidden = true
-
-                    if appModel.isShowingHistory {
-                        // Bring the window to front
-                        window.makeKeyAndOrderFront(nil)
-                        NSApp.activate(ignoringOtherApps: true)
-                    } else {
-                        window.orderOut(nil)
-                    }
-
-                    // Install the resign-key observer only once (identified by name)
-                    let observerName = "com.copiapega.resignKey"
-                    if objc_getAssociatedObject(window, observerName) == nil {
-                        let token = NotificationCenter.default.addObserver(
-                            forName: NSWindow.didResignKeyNotification,
-                            object: window,
-                            queue: .main
-                        ) { _ in
-                            Task { @MainActor in
-                                guard !appModel.isPreviewingImage else { return }
-                                appModel.isShowingHistory = false
-                                window.orderOut(nil)
-                            }
-                        }
-                        objc_setAssociatedObject(window, observerName, token, .OBJC_ASSOCIATION_RETAIN)
-                    }
-
-                    let appObserverName = "com.copiapega.appResignActive"
-                    if objc_getAssociatedObject(window, appObserverName) == nil {
-                        let token = NotificationCenter.default.addObserver(
-                            forName: NSApplication.didResignActiveNotification,
-                            object: NSApp,
-                            queue: .main
-                        ) { _ in
-                            Task { @MainActor in
-                                guard appModel.isShowingHistory else { return }
-                                guard !appModel.isPreviewingImage else { return }
-                                appModel.isShowingHistory = false
-                                window.orderOut(nil)
-                            }
-                        }
-                        objc_setAssociatedObject(window, appObserverName, token, .OBJC_ASSOCIATION_RETAIN)
-                    }
+                    appModel.attachHistoryWindow(window)
                 })
                 .frame(width: 380, height: 500)
         }

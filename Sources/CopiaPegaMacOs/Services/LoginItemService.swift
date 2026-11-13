@@ -5,6 +5,9 @@ import ServiceManagement
 final class LoginItemService: ObservableObject {
     @Published var isEnabled: Bool {
         didSet {
+            guard !isSyncingFromService, oldValue != isEnabled else {
+                return
+            }
             if isEnabled {
                 register()
             } else {
@@ -13,28 +16,42 @@ final class LoginItemService: ObservableObject {
         }
     }
 
+    @Published private(set) var lastError: String?
+    private var isSyncingFromService = false
+
     init() {
-        // Check the current registration status
         self.isEnabled = SMAppService.mainApp.status == .enabled
+    }
+
+    func refresh() {
+        setStateWithoutSideEffects(SMAppService.mainApp.status == .enabled)
+    }
+
+    private func setStateWithoutSideEffects(_ value: Bool) {
+        isSyncingFromService = true
+        isEnabled = value
+        isSyncingFromService = false
     }
 
     private func register() {
         do {
             try SMAppService.mainApp.register()
+            lastError = nil
         } catch {
+            lastError = error.localizedDescription
             print("Error al registrar Login Item: \(error)")
-            // Revert the toggle if registration fails
-            isEnabled = false
+            setStateWithoutSideEffects(SMAppService.mainApp.status == .enabled)
         }
     }
 
     private func unregister() {
         do {
             try SMAppService.mainApp.unregister()
+            lastError = nil
         } catch {
+            lastError = error.localizedDescription
             print("Error al desregistrar Login Item: \(error)")
-            // Revert the toggle if unregistration fails
-            isEnabled = true
+            setStateWithoutSideEffects(SMAppService.mainApp.status == .enabled)
         }
     }
 }

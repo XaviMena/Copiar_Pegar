@@ -16,11 +16,11 @@ final class ClipboardService {
     }
 
     func shouldIgnore(changeCount: Int) -> Bool {
-        if ignoredChangeCount == changeCount {
-            ignoredChangeCount = nil
-            return true
+        guard let ignoredChangeCount else {
+            return false
         }
-        return false
+        self.ignoredChangeCount = nil
+        return ignoredChangeCount == changeCount
     }
 
     func readCurrent(saveImages: Bool) -> ClipboardPayload? {
@@ -40,17 +40,19 @@ final class ClipboardService {
     }
 
     func restore(_ entry: ClipboardEntry, history: HistoryStore) {
-        pasteboard.clearContents()
-
         switch entry.kind {
         case .text:
-            if let text = entry.text {
-                pasteboard.setString(text, forType: .string)
+            guard let text = entry.text else {
+                return
             }
+            pasteboard.clearContents()
+            pasteboard.setString(text, forType: .string)
         case .image:
-            if let image = history.image(for: entry) {
-                pasteboard.writeObjects([image])
+            guard let image = history.image(for: entry) else {
+                return
             }
+            pasteboard.clearContents()
+            pasteboard.writeObjects([image])
         }
 
         ignoredChangeCount = pasteboard.changeCount

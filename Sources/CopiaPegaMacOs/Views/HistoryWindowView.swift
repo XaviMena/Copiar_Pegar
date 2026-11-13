@@ -9,9 +9,10 @@ struct HistoryWindowView: View {
     @State private var showSearch = false
     @State private var previewedImageEntry: ClipboardEntry?
     @State private var openingImageEntryID: ClipboardEntry.ID?
+    @FocusState private var isSearchFocused: Bool
 
     private var selectedEntry: ClipboardEntry? {
-        appModel.history.entries.first { $0.id == selection }
+        filteredEntries.first { $0.id == selection }
     }
 
     private var filteredEntries: [ClipboardEntry] {
@@ -27,95 +28,90 @@ struct HistoryWindowView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // ── Minimal Header ──
-            HStack {
-                Text("Historial")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.primary)
+        ScrollViewReader { proxy in
+            VStack(spacing: 0) {
+                // ── Minimal Header ──
+                HStack {
+                    Text("Historial")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.primary)
 
-                Spacer()
+                    Spacer()
 
-                // Search toggle
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        showSearch.toggle()
-                        if !showSearch { searchText = "" }
+                    // Search toggle
+                    Button {
+                        toggleSearch()
+                    } label: {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(showSearch ? Color.accentColor : Color.secondary.opacity(0.5))
+                            .frame(width: 24, height: 24)
                     }
-                } label: {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(showSearch ? Color.accentColor : Color.secondary.opacity(0.5))
-                        .frame(width: 24, height: 24)
+                    .buttonStyle(.plain)
+                    .help("Buscar (⌘F)")
+
+                    // Close
+                    Button {
+                        appModel.closeHistory()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.tertiary)
+                            .frame(width: 22, height: 22)
+                            .background(
+                                Circle().fill(Color.primary.opacity(0.06))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .help("Cerrar (Esc)")
                 }
-                .buttonStyle(.plain)
-                .help("Buscar (⌘F)")
+                .padding(.horizontal, 16)
+                .padding(.top, 14)
+                .padding(.bottom, showSearch ? 8 : 12)
 
-                // Close
-                Button {
-                    appModel.closeHistoryWindow?()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(.tertiary)
-                        .frame(width: 22, height: 22)
-                        .background(
-                            Circle().fill(Color.primary.opacity(0.06))
-                        )
-                }
-                .buttonStyle(.plain)
-                .help("Cerrar (Esc)")
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 14)
-            .padding(.bottom, showSearch ? 8 : 12)
+                // ── Collapsible Search ──
+                if showSearch {
+                    HStack(spacing: 6) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.tertiary)
 
-            // ── Collapsible Search ──
-            if showSearch {
-                HStack(spacing: 6) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.tertiary)
+                        TextField("Buscar...", text: $searchText)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 12))
+                            .focused($isSearchFocused)
 
-                    TextField("Buscar...", text: $searchText)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 12))
-
-                    if !searchText.isEmpty {
-                        Button {
-                            searchText = ""
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.tertiary)
+                        if !searchText.isEmpty {
+                            Button {
+                                searchText = ""
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(
+                        RoundedRectangle(cornerRadius: 7)
+                            .fill(Color.primary.opacity(0.04))
+                    )
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 8)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(
-                    RoundedRectangle(cornerRadius: 7)
-                        .fill(Color.primary.opacity(0.04))
-                )
-                .padding(.horizontal, 14)
-                .padding(.bottom, 8)
-                .transition(.opacity.combined(with: .move(edge: .top)))
-            }
 
-            // ── Subtle separator ──
-            Rectangle()
-                .fill(Color.primary.opacity(0.06))
-                .frame(height: 0.5)
-                .padding(.horizontal, 12)
+                // ── Subtle separator ──
+                Rectangle()
+                    .fill(Color.primary.opacity(0.06))
+                    .frame(height: 0.5)
+                    .padding(.horizontal, 12)
 
-            // ── Items List ──
-            ScrollViewReader { proxy in
+                // ── Items List ──
                 if filteredEntries.isEmpty {
                     emptyState
-                        .onAppear {
-                            resetPresentation()
-                        }
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 1) {
@@ -148,35 +144,39 @@ struct HistoryWindowView: View {
                         .padding(.horizontal, 8)
                         .padding(.vertical, 6)
                     }
-                    .onAppear {
-                        resetPresentation(scrollProxy: proxy)
-                    }
-                    .onChange(of: appModel.isShowingHistory) { _, isShowing in
-                        guard isShowing else { return }
-                        resetPresentation(scrollProxy: proxy)
-                    }
-                    .onChange(of: appModel.history.entries.map(\.id)) { _, _ in
-                        ensureVisibleSelection(scrollProxy: proxy)
-                    }
                 }
+
+                // ── Keyboard Hints Footer ──
+                Rectangle()
+                    .fill(Color.primary.opacity(0.06))
+                    .frame(height: 0.5)
+                    .padding(.horizontal, 12)
+
+                HStack(spacing: 16) {
+                    shortcutHint("↑↓", "Navegar")
+                    shortcutHint("↩", "Pegar")
+                    shortcutHint("⌫", "Eliminar")
+                    shortcutHint("esc", "Cerrar")
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 6)
+
+                // ── Hidden Keyboard Shortcuts ──
+                hiddenShortcuts(scrollProxy: proxy)
             }
-
-            // ── Keyboard Hints Footer ──
-            Rectangle()
-                .fill(Color.primary.opacity(0.06))
-                .frame(height: 0.5)
-                .padding(.horizontal, 12)
-
-            HStack(spacing: 16) {
-                shortcutHint("↩", "Pegar")
-                shortcutHint("⌫", "Eliminar")
-                shortcutHint("esc", "Cerrar")
+            .onAppear {
+                resetPresentation(scrollProxy: proxy)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 6)
-
-            // ── Hidden Keyboard Shortcuts ──
-            hiddenShortcuts
+            .onChange(of: appModel.isShowingHistory) { _, isShowing in
+                guard isShowing else { return }
+                resetPresentation(scrollProxy: proxy)
+            }
+            .onChange(of: appModel.history.entries.map(\.id)) { _, _ in
+                ensureVisibleSelection(scrollProxy: proxy)
+            }
+            .onChange(of: searchText) { _, _ in
+                ensureVisibleSelection(scrollProxy: proxy)
+            }
         }
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -202,9 +202,24 @@ struct HistoryWindowView: View {
         }
     }
 
+    private func toggleSearch() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            showSearch.toggle()
+            if showSearch {
+                DispatchQueue.main.async {
+                    isSearchFocused = true
+                }
+            } else {
+                isSearchFocused = false
+                searchText = ""
+            }
+        }
+    }
+
     private func resetPresentation(scrollProxy: ScrollViewProxy? = nil) {
         guard appModel.isShowingHistory else { return }
         showSearch = false
+        isSearchFocused = false
         searchText = ""
         selection = appModel.history.entries.first?.id
         scrollToSelection(scrollProxy)
@@ -219,10 +234,48 @@ struct HistoryWindowView: View {
         scrollToSelection(scrollProxy)
     }
 
+    private func moveSelection(by delta: Int, scrollProxy: ScrollViewProxy) {
+        let entries = filteredEntries
+        guard !entries.isEmpty else { return }
+
+        guard let currentID = selection,
+              let currentIndex = entries.firstIndex(where: { $0.id == currentID }) else {
+            selection = entries.first?.id
+            scrollToSelection(scrollProxy)
+            return
+        }
+
+        let nextIndex = max(0, min(entries.count - 1, currentIndex + delta))
+        selection = entries[nextIndex].id
+        scrollToSelection(scrollProxy)
+    }
+
+    private func deleteSelectedEntry(_ entry: ClipboardEntry, scrollProxy: ScrollViewProxy) {
+        let entries = filteredEntries
+        let nextSelection: ClipboardEntry.ID?
+        if let currentIndex = entries.firstIndex(where: { $0.id == entry.id }) {
+            if currentIndex + 1 < entries.count {
+                nextSelection = entries[currentIndex + 1].id
+            } else if currentIndex > 0 {
+                nextSelection = entries[currentIndex - 1].id
+            } else {
+                nextSelection = nil
+            }
+        } else {
+            nextSelection = nil
+        }
+
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+            appModel.delete(entry)
+            selection = nextSelection
+        }
+        scrollToSelection(scrollProxy)
+    }
+
     private func scrollToSelection(_ scrollProxy: ScrollViewProxy?) {
         guard let selection, let scrollProxy else { return }
         DispatchQueue.main.async {
-            scrollProxy.scrollTo(selection, anchor: .top)
+            scrollProxy.scrollTo(selection, anchor: .center)
         }
     }
 
@@ -262,32 +315,36 @@ struct HistoryWindowView: View {
     // MARK: - Hidden Shortcuts
 
     @ViewBuilder
-    private var hiddenShortcuts: some View {
+    private func hiddenShortcuts(scrollProxy: ScrollViewProxy) -> some View {
+        Button("") { moveSelection(by: -1, scrollProxy: scrollProxy) }
+            .keyboardShortcut(.upArrow, modifiers: [])
+            .opacity(0).frame(width: 0, height: 0)
+
+        Button("") { moveSelection(by: 1, scrollProxy: scrollProxy) }
+            .keyboardShortcut(.downArrow, modifiers: [])
+            .opacity(0).frame(width: 0, height: 0)
+
         if let selectedEntry {
             Button("") { appModel.restoreAndPaste(selectedEntry) }
                 .keyboardShortcut(.defaultAction)
                 .opacity(0).frame(width: 0, height: 0)
 
-            Button("") {
-                withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                    appModel.delete(selectedEntry)
-                    selection = nil
+            if !isSearchFocused {
+                Button("") {
+                    deleteSelectedEntry(selectedEntry, scrollProxy: scrollProxy)
                 }
+                .keyboardShortcut(.delete, modifiers: [])
+                .opacity(0).frame(width: 0, height: 0)
             }
-            .keyboardShortcut(.delete, modifiers: [])
-            .opacity(0).frame(width: 0, height: 0)
         }
 
-        Button("") { appModel.closeHistoryWindow?() }
+        Button("") { appModel.closeHistory() }
             .keyboardShortcut(.cancelAction)
             .opacity(0).frame(width: 0, height: 0)
 
         // Cmd+F to toggle search
         Button("") {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                showSearch.toggle()
-                if !showSearch { searchText = "" }
-            }
+            toggleSearch()
         }
         .keyboardShortcut("f", modifiers: .command)
         .opacity(0).frame(width: 0, height: 0)
@@ -487,9 +544,11 @@ private struct ImagePreviewSheet: View {
                 Spacer()
 
                 Button {
-                    appModel.restoreAndPaste(entry)
                     appModel.isPreviewingImage = false
                     dismiss()
+                    DispatchQueue.main.async {
+                        appModel.restoreAndPaste(entry)
+                    }
                 } label: {
                     Label("Pegar", systemImage: "doc.on.clipboard")
                 }
@@ -557,11 +616,12 @@ private struct ImagePreviewSheet: View {
             return
         }
 
-        let loadedImage = await Task.detached(priority: .userInitiated) {
-            NSImage(contentsOf: url)
+        let data = await Task.detached(priority: .userInitiated) {
+            try? Data(contentsOf: url)
         }.value
 
-        image = loadedImage
+        guard !Task.isCancelled else { return }
+        image = data.flatMap { NSImage(data: $0) }
         isLoading = false
     }
 }

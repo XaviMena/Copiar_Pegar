@@ -1,7 +1,13 @@
+import AppKit
 import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject private var appModel: AppModel
+    @State private var isAccessibilityTrusted = false
+
+    private var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
+    }
 
     private var maxItems: Binding<Double> {
         Binding {
@@ -25,10 +31,32 @@ struct SettingsView: View {
                 Toggle("Iniciar al arrancar macOS", isOn: $appModel.loginItemService.isEnabled)
                     .help("La app se iniciará automáticamente cuando enciendas tu Mac")
 
+                if let loginError = appModel.loginItemService.lastError {
+                    Text("No se pudo actualizar el inicio automático: \(loginError)")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+
+                HStack {
+                    Text("Accesibilidad (pegar automático)")
+                    Spacer()
+                    if isAccessibilityTrusted {
+                        Text("Concedido")
+                            .foregroundStyle(.green)
+                    } else {
+                        Button("Permitir") {
+                            _ = appModel.pasteAutomation.requestAccessibilityPermission()
+                            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                                NSWorkspace.shared.open(url)
+                            }
+                        }
+                    }
+                }
+
                 HStack {
                     Text("Versión")
                     Spacer()
-                    Text("1.0.0")
+                    Text(appVersion)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -81,6 +109,12 @@ struct SettingsView: View {
                         Text(choice.name).tag(choice.keyCode)
                     }
                 }
+
+                if appModel.hotKey.registrationFailed {
+                    Text("Este atajo ya está ocupado por otra aplicación. Prueba con otra combinación.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
             }
 
             Section {
@@ -95,5 +129,16 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .padding()
+        .onAppear {
+            refreshStatus()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            refreshStatus()
+        }
+    }
+
+    private func refreshStatus() {
+        isAccessibilityTrusted = appModel.pasteAutomation.isAccessibilityTrusted
+        appModel.loginItemService.refresh()
     }
 }
