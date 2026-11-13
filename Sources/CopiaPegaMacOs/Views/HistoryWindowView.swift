@@ -509,20 +509,35 @@ private struct ClipboardItemRow: View {
     let onPaste: () -> Void
     let onPreviewImage: () -> Void
 
+    private var pasteWithSingleClick: Bool {
+        appModel.settingsStore.settings.pasteClickCount == 1
+    }
+
     var body: some View {
+        rowWithTapBehavior
+            .onHover(perform: onHoverChanged)
+    }
+
+    @ViewBuilder
+    private var rowWithTapBehavior: some View {
+        if pasteWithSingleClick {
+            rowContent
+                .onTapGesture(count: 1) {
+                    onSelect()
+                    onPaste()
+                }
+        } else {
+            rowContent
+                .onTapGesture(count: 2) { onPaste() }
+                .onTapGesture(count: 1) { onSelect() }
+        }
+    }
+
+    private var rowContent: some View {
         HStack(spacing: 10) {
             // ── Thumbnail ──
-            thumbnail
+            thumbnailView
                 .frame(width: 40, height: 40)
-                .onTapGesture(count: 2) { onPaste() }
-                .onTapGesture(count: 1) {
-                    if entry.kind == .image {
-                        onPreviewImage()
-                    } else {
-                        onSelect()
-                    }
-                }
-                .help(entry.kind == .image ? "Click para ampliar. Doble click para pegar." : "")
 
             // ── Content ──
             VStack(alignment: .leading, spacing: 2) {
@@ -552,9 +567,24 @@ private struct ClipboardItemRow: View {
         .padding(.vertical, 7)
         .background(rowBackground)
         .contentShape(Rectangle())
-        .onTapGesture(count: 2) { onPaste() }
-        .onTapGesture(count: 1) { onSelect() }
-        .onHover(perform: onHoverChanged)
+    }
+
+    @ViewBuilder
+    private var thumbnailView: some View {
+        if entry.kind == .image {
+            if pasteWithSingleClick {
+                thumbnail
+                    .onTapGesture(count: 1) { onPreviewImage() }
+                    .help("Clic para ampliar")
+            } else {
+                thumbnail
+                    .onTapGesture(count: 2) { onPaste() }
+                    .onTapGesture(count: 1) { onPreviewImage() }
+                    .help("Clic para ampliar. Doble clic para pegar.")
+            }
+        } else {
+            thumbnail
+        }
     }
 
     // MARK: Thumbnail

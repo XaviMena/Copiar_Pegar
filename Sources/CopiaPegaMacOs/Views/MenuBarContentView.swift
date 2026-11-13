@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct MenuBarContentView: View {
@@ -48,9 +49,10 @@ struct MenuBarContentView: View {
         }
         .keyboardShortcut(openHistoryShortcut.key, modifiers: openHistoryShortcut.modifiers)
 
-        SettingsLink {
-            Text("Ajustes")
+        Button("Ajustes") {
+            appModel.showSettings()
         }
+        .keyboardShortcut(",", modifiers: .command)
 
         Button("Limpiar historial", role: .destructive) {
             appModel.clearHistory()

@@ -86,6 +86,17 @@ struct SettingsView: View {
                 } set: { value in
                     appModel.settingsStore.settings.saveImages = value
                 })
+
+                Picker("Pegar desde el historial", selection: Binding {
+                    appModel.settingsStore.settings.pasteClickCount
+                } set: { value in
+                    appModel.settingsStore.settings.pasteClickCount = value
+                }) {
+                    ForEach(PasteClickMode.allCases) { mode in
+                        Text(mode.title).tag(mode.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
             }
 
             Section("Atajo global") {

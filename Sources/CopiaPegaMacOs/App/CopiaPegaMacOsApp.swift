@@ -14,11 +14,5 @@ struct CopiaPegaMacOsApp: App {
             Image(systemName: "list.clipboard")
         }
         .menuBarExtraStyle(.menu)
-
-        Settings {
-            SettingsView()
-                .environmentObject(appModel)
-                .frame(width: 420)
-        }
     }
 }

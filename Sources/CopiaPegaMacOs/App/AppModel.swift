@@ -37,7 +37,9 @@ final class AppModel: ObservableObject {
     private let monitor: ClipboardMonitor
     let pasteAutomation: PasteAutomationService
     private var historyWindow: KeyableWindow?
+    private var settingsWindow: NSWindow?
     private var windowObservers: [NSObjectProtocol] = []
+    private var settingsCloseObserver: NSObjectProtocol?
     private var cancellables = Set<AnyCancellable>()
 
     init() {
@@ -200,5 +202,65 @@ final class AppModel: ObservableObject {
     func refreshSystemStatus() {
         isAccessibilityTrusted = pasteAutomation.isAccessibilityTrusted
         loginItemService.refresh()
+    }
+
+    private func ensureSettingsWindow() -> NSWindow {
+        if let settingsWindow {
+            return settingsWindow
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 450, height: 590),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Ajustes"
+        window.isReleasedWhenClosed = false
+        window.minSize = NSSize(width: 420, height: 500)
+
+        let rootView = SettingsView()
+            .environmentObject(self)
+            .frame(minWidth: 420, idealWidth: 450, minHeight: 500, idealHeight: 590)
+        window.contentView = NSHostingView(rootView: rootView)
+
+        let autosaveName = NSWindow.FrameAutosaveName("CopiaPegaSettingsWindowFrame")
+        if !window.setFrameUsingName(autosaveName) {
+            window.center()
+        }
+        window.setFrameAutosaveName(autosaveName)
+
+        settingsCloseObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main
+        ) { _ in
+            Task { @MainActor in
+                NSApp.setActivationPolicy(.accessory)
+            }
+        }
+
+        settingsWindow = window
+        return window
+    }
+
+    func showSettings() {
+        closeHistory()
+        refreshSystemStatus()
+        let window = ensureSettingsWindow()
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+        window.deminiaturize(nil)
+        window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
+
+        Task { @MainActor [weak window] in
+            try? await Task.sleep(for: .milliseconds(80))
+            guard let window, window.isVisible else { return }
+            NSApp.setActivationPolicy(.regular)
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+            window.orderFrontRegardless()
+        }
     }
 }

@@ -1,9 +1,26 @@
 import Foundation
 
+enum PasteClickMode: Int, CaseIterable, Identifiable {
+    case single = 1
+    case double = 2
+
+    var id: Int { rawValue }
+
+    var title: String {
+        switch self {
+        case .single:
+            return "1 clic"
+        case .double:
+            return "2 clics"
+        }
+    }
+}
+
 struct AppSettings: Equatable {
     var maxItems: Int
     var retentionHours: Int
     var saveImages: Bool
+    var pasteClickCount: Int
     var hotKeyKeyCode: UInt32
     var hotKeyModifiers: UInt32
 
@@ -11,6 +28,7 @@ struct AppSettings: Equatable {
         maxItems: 50,
         retentionHours: 24,
         saveImages: true,
+        pasteClickCount: PasteClickMode.double.rawValue,
         hotKeyKeyCode: HotKeyDefaults.keyV,
         hotKeyModifiers: HotKeyDefaults.commandOption
     )
