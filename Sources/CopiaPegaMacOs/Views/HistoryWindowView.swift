@@ -204,22 +204,24 @@ struct HistoryWindowView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 6)
-
-                // ── Hidden Keyboard Shortcuts ──
-                hiddenShortcuts(scrollProxy: proxy)
             }
             .onAppear {
-                resetPresentation(scrollProxy: proxy)
+                scrollToSelection(proxy)
             }
             .onChange(of: appModel.isShowingHistory) { _, isShowing in
                 guard isShowing else { return }
-                resetPresentation(scrollProxy: proxy)
+                scrollToSelection(proxy)
+            }
+            .onChange(of: viewState.selection) { _, _ in
+                scrollToSelection(proxy)
             }
             .onChange(of: appModel.history.entries.map(\.id)) { _, _ in
-                ensureVisibleSelection(scrollProxy: proxy)
+                appModel.ensureVisibleHistorySelection()
+                scrollToSelection(proxy)
             }
             .onChange(of: viewState.searchText) { _, _ in
-                ensureVisibleSelection(scrollProxy: proxy)
+                appModel.ensureVisibleHistorySelection()
+                scrollToSelection(proxy)
             }
         }
         .background(.ultraThinMaterial)
@@ -246,77 +248,8 @@ struct HistoryWindowView: View {
         }
     }
 
-    private func toggleSearch(scrollProxy: ScrollViewProxy) {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            viewState.showSearch.toggle()
-            if !viewState.showSearch {
-                viewState.isSearchFocused = false
-                viewState.searchText = ""
-                NSApp.keyWindow?.makeFirstResponder(nil)
-                ensureVisibleSelection(scrollProxy: scrollProxy)
-            }
-        }
-    }
-
-    private func resetPresentation(scrollProxy: ScrollViewProxy? = nil) {
-        guard appModel.isShowingHistory else { return }
-        viewState.showSearch = false
-        viewState.isSearchFocused = false
-        viewState.searchText = ""
-        viewState.hoveredEntryID = nil
-        viewState.selection = appModel.history.entries.first?.id
-        scrollToSelection(scrollProxy)
-    }
-
-    private func ensureVisibleSelection(scrollProxy: ScrollViewProxy) {
-        let visibleIDs = Set(filteredEntries.map(\.id))
-        if let selection = viewState.selection, visibleIDs.contains(selection) {
-            return
-        }
-        viewState.selection = filteredEntries.first?.id
-        scrollToSelection(scrollProxy)
-    }
-
-    private func moveSelection(by delta: Int, scrollProxy: ScrollViewProxy) {
-        let entries = filteredEntries
-        guard !entries.isEmpty else { return }
-
-        guard let currentID = viewState.selection,
-              let currentIndex = entries.firstIndex(where: { $0.id == currentID }) else {
-            viewState.selection = entries.first?.id
-            scrollToSelection(scrollProxy)
-            return
-        }
-
-        let nextIndex = max(0, min(entries.count - 1, currentIndex + delta))
-        viewState.selection = entries[nextIndex].id
-        scrollToSelection(scrollProxy)
-    }
-
-    private func deleteSelectedEntry(_ entry: ClipboardEntry, scrollProxy: ScrollViewProxy) {
-        let entries = filteredEntries
-        let nextSelection: ClipboardEntry.ID?
-        if let currentIndex = entries.firstIndex(where: { $0.id == entry.id }) {
-            if currentIndex + 1 < entries.count {
-                nextSelection = entries[currentIndex + 1].id
-            } else if currentIndex > 0 {
-                nextSelection = entries[currentIndex - 1].id
-            } else {
-                nextSelection = nil
-            }
-        } else {
-            nextSelection = nil
-        }
-
-        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-            appModel.delete(entry)
-            viewState.selection = nextSelection
-        }
-        scrollToSelection(scrollProxy)
-    }
-
     private func scrollToSelection(_ scrollProxy: ScrollViewProxy?) {
-        guard let selection = viewState.selection, let scrollProxy else { return }
+        guard appModel.isShowingHistory, let selection = viewState.selection, let scrollProxy else { return }
         DispatchQueue.main.async {
             scrollProxy.scrollTo(selection, anchor: .center)
         }
@@ -353,45 +286,6 @@ struct HistoryWindowView: View {
                 .font(.system(size: 9.5, weight: .medium))
                 .foregroundStyle(.quaternary)
         }
-    }
-
-    // MARK: - Hidden Shortcuts
-
-    @ViewBuilder
-    private func hiddenShortcuts(scrollProxy: ScrollViewProxy) -> some View {
-        Button("") { moveSelection(by: -1, scrollProxy: scrollProxy) }
-            .keyboardShortcut(.upArrow, modifiers: [])
-            .opacity(0).frame(width: 0, height: 0)
-
-        Button("") { moveSelection(by: 1, scrollProxy: scrollProxy) }
-            .keyboardShortcut(.downArrow, modifiers: [])
-            .opacity(0).frame(width: 0, height: 0)
-
-        if let selectedEntry {
-            Button("") { appModel.restoreAndPaste(selectedEntry) }
-                .keyboardShortcut(.defaultAction)
-                .opacity(0).frame(width: 0, height: 0)
-
-            if !viewState.isSearchFocused {
-                Button("") {
-                    guard !(NSApp.keyWindow?.firstResponder is NSTextView) else { return }
-                    deleteSelectedEntry(selectedEntry, scrollProxy: scrollProxy)
-                }
-                .keyboardShortcut(.delete, modifiers: [])
-                .opacity(0).frame(width: 0, height: 0)
-            }
-        }
-
-        Button("") { appModel.closeHistory() }
-            .keyboardShortcut(.cancelAction)
-            .opacity(0).frame(width: 0, height: 0)
-
-        // Cmd+F to toggle search
-        Button("") {
-            toggleSearch(scrollProxy: scrollProxy)
-        }
-        .keyboardShortcut("f", modifiers: .command)
-        .opacity(0).frame(width: 0, height: 0)
     }
 }
 
