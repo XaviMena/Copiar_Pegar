@@ -1,6 +1,13 @@
 import AppKit
 import Combine
 import Foundation
+import SwiftUI
+
+@MainActor
+private final class KeyableWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+}
 
 @MainActor
 final class HistoryViewState: ObservableObject {
@@ -26,12 +33,10 @@ final class AppModel: ObservableObject {
     @Published var hotKey: HotKeyService
     let historyViewState = HistoryViewState()
 
-    var openHistoryWindow: (() -> Void)?
-
     private let clipboard: ClipboardService
     private let monitor: ClipboardMonitor
     let pasteAutomation: PasteAutomationService
-    private weak var historyWindow: NSWindow?
+    private var historyWindow: KeyableWindow?
     private var windowObservers: [NSObjectProtocol] = []
     private var cancellables = Set<AnyCancellable>()
 
@@ -99,61 +104,56 @@ final class AppModel: ObservableObject {
             .store(in: &cancellables)
     }
 
-    func attachHistoryWindow(_ window: NSWindow?) {
-        guard let window else { return }
-
-        if historyWindow !== window {
-            for token in windowObservers {
-                NotificationCenter.default.removeObserver(token)
-            }
-            windowObservers.removeAll()
-            historyWindow = window
-
-            // Keep .titled so canBecomeKey remains true for keyboard shortcuts and search input.
-            window.titleVisibility = .hidden
-            window.titlebarAppearsTransparent = true
-            window.styleMask.insert(.fullSizeContentView)
-            window.isMovableByWindowBackground = true
-            window.isOpaque = false
-            window.backgroundColor = .clear
-            window.level = .floating
-            window.collectionBehavior.insert(.moveToActiveSpace)
-
-            window.standardWindowButton(.closeButton)?.isHidden = true
-            window.standardWindowButton(.miniaturizeButton)?.isHidden = true
-            window.standardWindowButton(.zoomButton)?.isHidden = true
-
-            let resignKeyToken = NotificationCenter.default.addObserver(
-                forName: NSWindow.didResignKeyNotification,
-                object: window,
-                queue: .main
-            ) { [weak self] _ in
-                Task { @MainActor in
-                    guard let self, self.isShowingHistory, !self.isPreviewingImage else { return }
-                    self.closeHistory()
-                }
-            }
-
-            let resignActiveToken = NotificationCenter.default.addObserver(
-                forName: NSApplication.didResignActiveNotification,
-                object: NSApp,
-                queue: .main
-            ) { [weak self] _ in
-                Task { @MainActor in
-                    guard let self, self.isShowingHistory, !self.isPreviewingImage else { return }
-                    self.closeHistory()
-                }
-            }
-
-            windowObservers = [resignKeyToken, resignActiveToken]
+    private func ensureHistoryWindow() -> KeyableWindow {
+        if let historyWindow {
+            return historyWindow
         }
 
-        if isShowingHistory {
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-        } else {
-            window.orderOut(nil)
+        let window = KeyableWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 380, height: 500),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.isMovableByWindowBackground = true
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.hasShadow = true
+        window.level = .floating
+        window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
+
+        let rootView = HistoryWindowView()
+            .environmentObject(self)
+            .frame(width: 380, height: 500)
+        window.contentView = NSHostingView(rootView: rootView)
+        window.center()
+
+        let resignKeyToken = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.isShowingHistory, !self.isPreviewingImage else { return }
+                self.closeHistory()
+            }
         }
+
+        let resignActiveToken = NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification,
+            object: NSApp,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.isShowingHistory, !self.isPreviewingImage else { return }
+                self.closeHistory()
+            }
+        }
+
+        windowObservers = [resignKeyToken, resignActiveToken]
+        historyWindow = window
+        return window
     }
 
     func restore(_ entry: ClipboardEntry) {
@@ -181,13 +181,10 @@ final class AppModel: ObservableObject {
     func showHistory() {
         pasteAutomation.captureCurrentTarget()
         history.prune(settings: settingsStore.settings)
+        let window = ensureHistoryWindow()
         isShowingHistory = true
         NSApp.activate(ignoringOtherApps: true)
-        if let historyWindow {
-            historyWindow.makeKeyAndOrderFront(nil)
-        } else {
-            openHistoryWindow?()
-        }
+        window.makeKeyAndOrderFront(nil)
     }
 
     func closeHistory() {
